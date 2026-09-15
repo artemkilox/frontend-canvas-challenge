@@ -13,9 +13,10 @@ import {
   type Viewport as RfViewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { canConnect, dropEdgesForNodes, MAX_EDGES, MAX_NODES } from '@/domain/graph';
+import { canConnect, dropEdgesForNodes, MAX_EDGES, MAX_NODES, typeById } from '@/domain/graph';
 import { createCanvasNode, type CanvasEdge, type CanvasNode } from '@/domain/project';
 import type { NodeType, Viewport } from '@/api/types';
+import { useMemo } from 'react';
 import { GeneratorNode } from './nodes/GeneratorNode';
 import { PromptNode } from './nodes/PromptNode';
 import { ResultNode } from './nodes/ResultNode';
@@ -37,6 +38,8 @@ type Props = {
 };
 
 export function CanvasFlow({ nodes, edges, defaultViewport, onNodes, onEdges, onViewport }: Props) {
+  const types = useMemo(() => typeById(nodes), [nodes]);
+
   function handleNodesChange(changes: NodeChange<CanvasNode>[]) {
     const next = applyNodeChanges(changes, nodes);
     let removed = false;
@@ -68,7 +71,7 @@ export function CanvasFlow({ nodes, edges, defaultViewport, onNodes, onEdges, on
       !canConnect({
         sourceId: connection.source,
         targetId: connection.target,
-        nodes,
+        types,
         edges,
       })
     ) {
@@ -138,7 +141,7 @@ export function CanvasFlow({ nodes, edges, defaultViewport, onNodes, onEdges, on
             canConnect({
               sourceId: connection.source as string,
               targetId: connection.target as string,
-              nodes,
+              types,
               edges,
             })
           }

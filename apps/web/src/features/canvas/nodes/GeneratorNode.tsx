@@ -10,7 +10,7 @@ import styles from '../nodes.module.css';
 export function GeneratorNode({ id, data }: NodeProps) {
   const actions = useCanvasActions();
   const generator = data as GeneratorNodeData;
-  const busy = actions.busyGeneratorId === id;
+  const busy = actions.busyGeneratorIds.has(id);
   return (
     <div className={`${styles.node} ${styles.node_generator}`}>
       <Handle

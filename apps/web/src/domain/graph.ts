@@ -29,7 +29,7 @@ export function typeById(nodes: { id: string; type?: string }[]): Map<string, No
 export function canConnect(input: {
   sourceId: string;
   targetId: string;
-  nodes: { id: string; type?: string }[];
+  types: Map<string, NodeType>;
   edges: { source: string; target: string }[];
 }): boolean {
   if (input.sourceId === input.targetId) {
@@ -38,9 +38,8 @@ export function canConnect(input: {
   if (input.edges.length >= MAX_EDGES) {
     return false;
   }
-  const types = typeById(input.nodes);
-  const sourceType = types.get(input.sourceId);
-  const targetType = types.get(input.targetId);
+  const sourceType = input.types.get(input.sourceId);
+  const targetType = input.types.get(input.targetId);
   if (!sourceType || !targetType || !isAllowedPair(sourceType, targetType)) {
     return false;
   }
@@ -76,6 +75,16 @@ export function dropEdgesForNodes<T extends { source: string; target: string }>(
     }
   }
   return kept;
+}
+
+export function findById<T extends { id: string }>(items: T[], id: string): T | undefined {
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item.id === id) {
+      return item;
+    }
+  }
+  return undefined;
 }
 
 export function resultIdForGenerator(

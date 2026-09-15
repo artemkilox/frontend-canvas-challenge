@@ -16,7 +16,15 @@ export async function getGraph(spaceId: string) {
       requestId: result.requestId,
     });
   }
-  return { ...result, etag: result.etag };
+  if (result.status === 304 || result.data == null) {
+    throw new ApiError({
+      kind: 'parse',
+      status: result.status,
+      message: 'Сервер вернул граф без тела. Обновите страницу.',
+      requestId: result.requestId,
+    });
+  }
+  return { ...result, etag: result.etag, data: result.data };
 }
 
 export async function putGraph(spaceId: string, graph: GraphDoc, etag: string) {

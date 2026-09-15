@@ -6,8 +6,7 @@ import { pollDelayMs, pollUntil } from '@/api/poll';
 import { getConfig } from '@/api/resources/config';
 import { createGeneration, getGeneration, listGenerations } from '@/api/resources/generations';
 import { getGraph, putGraph } from '@/api/resources/graph';
-import { getSpace } from '@/api/resources/spaces';
-import type { Generation, Viewport } from '@/api/types';
+import type { Generation, GraphDoc, Viewport } from '@/api/types';
 import { isGraphConflict, messageForApiError } from '@/domain/apiMessages';
 import {
   isGenerationFinal,
@@ -17,7 +16,7 @@ import {
   shouldApplyOverlay,
   type ResultOverlay,
 } from '@/domain/generationView';
-import { resultIdForGenerator, SAVE_DEBOUNCE_MS } from '@/domain/graph';
+import { findById, graphsEqual, resultIdForGenerator, SAVE_DEBOUNCE_MS } from '@/domain/graph';
 import {
   fromApiGraph,
   patchNodeData,
@@ -52,22 +51,21 @@ export function CanvasScreen({ spaceId }: Props) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
   const [overlays, setOverlays] = useState<Map<string, ResultOverlay>>(new Map());
-  const [busyGeneratorId, setBusyGeneratorId] = useState<string | null>(null);
+  const [busyGeneratorIds, setBusyGeneratorIds] = useState<ReadonlySet<string>>(() => new Set());
   const [pollFallbackMs, setPollFallbackMs] = useState(1500);
 
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
   const viewportRef = useRef(viewport);
   const etagRef = useRef('');
-  const overlaysRef = useRef(overlays);
   nodesRef.current = nodes;
   edgesRef.current = edges;
   viewportRef.current = viewport;
-  overlaysRef.current = overlays;
 
   const queueRef = useRef<ReturnType<typeof createSaveQueue<ReturnType<typeof toApiGraph>>> | null>(
     null,
   );
+  const lastSentRef = useRef<GraphDoc | null>(null);
   const pollsRef = useRef<Map<string, AbortController>>(new Map());
   const currentGenRef = useRef<Map<string, string>>(new Map());
 
@@ -83,15 +81,7 @@ export function CanvasScreen({ spaceId }: Props) {
   }, []);
 
   const applyOverlay = useCallback((resultNodeId: string, overlay: ResultOverlay) => {
-    let exists = false;
-    const currentNodes = nodesRef.current;
-    for (let i = 0; i < currentNodes.length; i++) {
-      if (currentNodes[i].id === resultNodeId) {
-        exists = true;
-        break;
-      }
-    }
-    if (!exists) {
+    if (!findById(nodesRef.current, resultNodeId)) {
       return;
     }
     setOverlays((prev) => {
@@ -106,9 +96,12 @@ export function CanvasScreen({ spaceId }: Props) {
   }, []);
 
   const watchGeneration = useCallback(
-    (generation: Generation) => {
+    async (generation: Generation) => {
+      const previousId = currentGenRef.current.get(generation.nodeId);
+      if (previousId && previousId !== generation.id) {
+        stopPoll(previousId);
+      }
       currentGenRef.current.set(generation.nodeId, generation.id);
-      stopPoll(generation.id);
       const controller = new AbortController();
       pollsRef.current.set(generation.id, controller);
       const image = assetUrl(generation.imageUrl);
@@ -116,16 +109,17 @@ export function CanvasScreen({ spaceId }: Props) {
       if (isGenerationFinal(generation)) {
         return;
       }
-      void pollUntil({
-        read: async (signal) => {
-          const result = await getGeneration(spaceId, generation.id, signal);
-          return { value: result.data, retryAfterMs: result.retryAfterMs };
-        },
-        isFinal: isGenerationFinal,
-        delayMs: (_value, retryAfterMs) => pollDelayMs(retryAfterMs, pollFallbackMs),
-        signal: controller.signal,
-        isCurrent: () => currentGenRef.current.get(generation.nodeId) === generation.id,
-      }).then((finalGeneration) => {
+      try {
+        const finalGeneration = await pollUntil({
+          read: async (signal) => {
+            const result = await getGeneration(spaceId, generation.id, signal);
+            return { value: result.data, retryAfterMs: result.retryAfterMs };
+          },
+          isFinal: isGenerationFinal,
+          delayMs: (_value, retryAfterMs) => pollDelayMs(retryAfterMs, pollFallbackMs),
+          signal: controller.signal,
+          isCurrent: () => currentGenRef.current.get(generation.nodeId) === generation.id,
+        });
         if (!finalGeneration) {
           return;
         }
@@ -134,7 +128,14 @@ export function CanvasScreen({ spaceId }: Props) {
           overlayFromGeneration(finalGeneration, assetUrl(finalGeneration.imageUrl)),
         );
         clearIdempotency(`${spaceId}:${finalGeneration.nodeId}`);
-      });
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setGenError(messageForApiError(error, 'Не удалось получить статус генерации. Повторите запуск.'));
+      } finally {
+        pollsRef.current.delete(generation.id);
+      }
     },
     [applyOverlay, pollFallbackMs, spaceId, stopPoll],
   );
@@ -154,7 +155,6 @@ export function CanvasScreen({ spaceId }: Props) {
         } catch {
           setPollFallbackMs(1500);
         }
-        await getSpace(spaceId);
         const graph = await getGraph(spaceId);
         const generations = await listGenerations(spaceId);
         if (cancelled) {
@@ -195,6 +195,7 @@ export function CanvasScreen({ spaceId }: Props) {
       getSnapshot: () => toApiGraph(nodesRef.current, edgesRef.current, viewportRef.current),
       getEtag: () => etagRef.current,
       put: async (snapshot, etag) => {
+        lastSentRef.current = snapshot;
         const result = await putGraph(spaceId, snapshot, etag);
         return result.etag;
       },
@@ -245,6 +246,10 @@ export function CanvasScreen({ spaceId }: Props) {
 
   const updateViewport = useCallback(
     (next: Viewport) => {
+      const current = viewportRef.current;
+      if (current.x === next.x && current.y === next.y && current.zoom === next.zoom) {
+        return;
+      }
       setViewport(next);
       viewportRef.current = next;
       markDirty();
@@ -278,13 +283,42 @@ export function CanvasScreen({ spaceId }: Props) {
     }
   }, [spaceId, stopPoll, watchGeneration]);
 
+  const retrySave = useCallback(async () => {
+    try {
+      const server = await getGraph(spaceId);
+      const sent = lastSentRef.current;
+      if (sent && graphsEqual(server.data, sent)) {
+        etagRef.current = server.etag;
+      } else if (server.etag !== etagRef.current) {
+        queueRef.current?.markConflict();
+        setSaveError(
+          'Граф на сервере новее. Локальные правки сохранены здесь. Можно перечитать серверную версию.',
+        );
+        return;
+      }
+      const ok = await queueRef.current?.flush();
+      if (!ok) {
+        setSaveError('Сохранение не удалось. Правки на канвасе не удалены.');
+      }
+    } catch (error) {
+      if (isGraphConflict(error)) {
+        queueRef.current?.markConflict();
+      }
+      setSaveError(messageForApiError(error, 'Сохранение не удалось.'));
+    }
+  }, [spaceId]);
+
   const runGeneration = useCallback(
     async (generatorId: string) => {
-      if (busyGeneratorId) {
+      if (busyGeneratorIds.has(generatorId)) {
         return;
       }
       setGenError(null);
-      setBusyGeneratorId(generatorId);
+      setBusyGeneratorIds((current) => {
+        const next = new Set(current);
+        next.add(generatorId);
+        return next;
+      });
       try {
         const saved = await queueRef.current?.flush();
         if (!saved) {
@@ -293,22 +327,14 @@ export function CanvasScreen({ spaceId }: Props) {
               ? 'Сначала разберите конфликт версии графа.'
               : 'Не удалось сохранить граф. Генерация не запущена, правки на месте.',
           );
-          setBusyGeneratorId(null);
           return;
         }
-        const snapshot = toApiGraph(nodesRef.current, edgesRef.current, viewportRef.current);
-        const resultNodeId = resultIdForGenerator(generatorId, snapshot.edges);
+        const resultNodeId = resultIdForGenerator(generatorId, edgesRef.current);
         if (!resultNodeId) {
           setGenError('Свяжите генератор с нодой результата.');
           return;
         }
-        let node: CanvasNode | undefined;
-        for (let i = 0; i < nodesRef.current.length; i++) {
-          if (nodesRef.current[i].id === generatorId) {
-            node = nodesRef.current[i];
-            break;
-          }
-        }
+        const node = findById(nodesRef.current, generatorId);
         if (!node || node.type !== 'generator') {
           setGenError('Запускать генерацию можно только с ноды генератора.');
           return;
@@ -326,17 +352,18 @@ export function CanvasScreen({ spaceId }: Props) {
         if (isGenerationFinal(created.data)) {
           clearIdempotency(slot);
         }
-        watchGeneration(created.data);
-        if (isGenerationFinal(created.data)) {
-          return;
-        }
+        await watchGeneration(created.data);
       } catch (error) {
         setGenError(messageForApiError(error, 'Не удалось запустить генерацию.'));
       } finally {
-        setBusyGeneratorId(null);
+        setBusyGeneratorIds((current) => {
+          const next = new Set(current);
+          next.delete(generatorId);
+          return next;
+        });
       }
     },
-    [busyGeneratorId, saveStatus, spaceId, watchGeneration],
+    [busyGeneratorIds, saveStatus, spaceId, watchGeneration],
   );
 
   const actions = useMemo<CanvasActions>(
@@ -358,9 +385,9 @@ export function CanvasScreen({ spaceId }: Props) {
         updateNodes(patchNodeData(nodesRef.current, id, { label }));
       },
       runGeneration,
-      busyGeneratorId,
+      busyGeneratorIds,
     }),
-    [busyGeneratorId, runGeneration, updateNodes],
+    [busyGeneratorIds, runGeneration, updateNodes],
   );
 
   if (phase === 'loading') {
@@ -416,9 +443,7 @@ export function CanvasScreen({ spaceId }: Props) {
                 type="button"
                 variant="ghost"
                 onClick={() => {
-                  void queueRef.current?.flush().catch((error: unknown) => {
-                    setSaveError(messageForApiError(error, 'Сохранение не удалось.'));
-                  });
+                  void retrySave();
                 }}
               >
                 Повторить сохранение

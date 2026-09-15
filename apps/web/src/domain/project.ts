@@ -131,13 +131,13 @@ export function patchNodeData<T extends CanvasNodeData>(
   id: string,
   patch: Partial<T>,
 ): CanvasNode[] {
-  const next = nodes.slice();
-  for (let i = 0; i < next.length; i++) {
-    const node = next[i];
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
     if (node.id === id) {
+      const next = nodes.slice();
       next[i] = { ...node, data: { ...node.data, ...patch } };
-      break;
+      return next;
     }
   }
-  return next;
+  return nodes;
 }

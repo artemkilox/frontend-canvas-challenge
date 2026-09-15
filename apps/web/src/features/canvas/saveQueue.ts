@@ -94,6 +94,10 @@ export function createSaveQueue<T>(params: {
         return false;
       }
     },
+    markConflict() {
+      conflict = true;
+      params.onStatus('conflict');
+    },
     clearConflict() {
       conflict = false;
     },

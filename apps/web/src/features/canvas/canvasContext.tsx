@@ -10,7 +10,7 @@ export type CanvasActions = {
   setSimulateFailure: (id: string, value: boolean) => void;
   setResultLabel: (id: string, label: string) => void;
   runGeneration: (id: string) => void;
-  busyGeneratorId: string | null;
+  busyGeneratorIds: ReadonlySet<string>;
 };
 
 const ActionsContext = createContext<CanvasActions | null>(null);
