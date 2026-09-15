@@ -1,0 +1,27 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field__label {
+  font-size: 0.85rem;
+}
+
+.field__control {
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid #d9d4c8;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.field__control:focus {
+  outline: 2px solid #1b1b1b;
+  outline-offset: 1px;
+}
+
+.field__control_area {
+  min-height: 88px;
+  resize: vertical;
+}

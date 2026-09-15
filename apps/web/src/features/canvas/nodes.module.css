@@ -1,0 +1,64 @@
+.node {
+  width: 260px;
+  padding: 12px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 1px 0 #d9d4c8;
+  overflow: visible;
+}
+
+.node_prompt {
+  border: 1px solid #c9c2b3;
+}
+
+.node_generator {
+  border: 1px solid #8aa0b8;
+}
+
+.node_result {
+  border: 1px solid #8aa88a;
+}
+
+.node__title {
+  margin: 0 0 4px;
+  font-weight: 650;
+}
+
+.node__port {
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+  color: #5c5850;
+}
+
+.node__check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+  font-size: 0.9rem;
+}
+
+.node__status {
+  margin: 10px 0 0;
+  font-size: 0.85rem;
+}
+
+.node__image {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  border-radius: 8px;
+}
+
+.node__handle {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #fff;
+  background: #1b1b1b;
+}
+
+.node__handle::before {
+  content: '';
+  position: absolute;
+  inset: -14px;
+}

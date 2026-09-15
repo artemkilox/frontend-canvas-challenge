@@ -1,7 +1,14 @@
-# Ваш фронтенд
+# Фронтенд `@canvas/web`
 
-Добавьте приложение на React, TypeScript и React Flow. Имя workspace — `@canvas/web`. Опишите установку и запуск в README своего решения.
+Next.js App Router, React Flow (`@xyflow/react`), CSS Modules с именами БЭМ, свой HTTP-клиент.
 
-[Задание](../../docs/ASSIGNMENT.md) · [API](../../docs/INTEGRATION.md)
+Запуск из корня репозитория описан в [корневом README](../../README.md). Только фронт: `npm run dev:web`. Сборка: `npm run build -w @canvas/web`, `npm run start:web`.
 
-[Критерии оценки](../../docs/EVALUATION.md).
+## Слои
+
+- `src/api/client.ts` — единственный `fetch`
+- `src/api/resources/*` — пути и тела запросов
+- `src/api/poll.ts` — опрос генерации
+- `src/domain` — связи, лимиты, проекция графа, выбор последней генерации
+- `src/features/canvas` — очередь сохранения, ноды, экран
+- `app` — маршруты `/` и `/spaces/[spaceId]`
